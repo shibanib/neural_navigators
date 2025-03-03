@@ -95,7 +95,8 @@ class SteinmetzDataLoader:
         Compute firing rates from spike times.
         
         Args:
-            spikes: List of spike times for each neuron
+            spikes: List of spike times for each neuron and trial
+                   (structure: neurons x trials x spike_times)
             time_bins: Array of time bin edges
             
         Returns:
@@ -106,10 +107,19 @@ class SteinmetzDataLoader:
         rates = np.zeros((n_neurons, n_bins))
         
         for i, neuron_spikes in enumerate(spikes):
-            rates[i], _ = np.histogram(neuron_spikes, bins=time_bins)
+            # Flatten all trials for this neuron into a single array of spike times
+            all_spikes = []
+            for trial_spikes in neuron_spikes:
+                all_spikes.extend(trial_spikes)
+                
+            # Now compute histogram of all spikes
+            if all_spikes:  # Only compute if there are spikes
+                counts, _ = np.histogram(all_spikes, bins=time_bins)
+                rates[i] = counts
             
-        # Convert to Hz
+        # Convert to Hz (dividing by bin width and number of trials)
         bin_width = time_bins[1] - time_bins[0]
-        rates = rates / bin_width
+        avg_n_trials = sum(len(neuron_trials) for neuron_trials in spikes) / n_neurons
+        rates = rates / (bin_width * avg_n_trials)
         
         return rates 
