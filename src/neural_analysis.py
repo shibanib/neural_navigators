@@ -43,19 +43,49 @@ class NeuralAnalyzer:
         Compute LFP power spectrum using Welch's method.
         
         Args:
-            lfp_data: LFP time series
+            lfp_data: LFP time series. Can be 1D (single time series) or 2D (multiple time series)
             freq_range: (min_freq, max_freq) to analyze
             
         Returns:
             tuple: (frequencies, power_spectrum)
         """
-        frequencies, power_spectrum = signal.welch(lfp_data, 
-                                                 fs=self.sampling_rate,
-                                                 nperseg=256)
+        # Set nperseg to be either 128 or the length of the data, whichever is smaller
+        nperseg = min(128, lfp_data.shape[-1])  # Use 128 instead of 256, and ensure it's not larger than data
         
-        # Filter to desired frequency range
-        mask = (frequencies >= freq_range[0]) & (frequencies <= freq_range[1])
-        return frequencies[mask], power_spectrum[mask]
+        # Check if lfp_data is 1D or multi-dimensional
+        is_multi_dim = lfp_data.ndim > 1
+        
+        if is_multi_dim:
+            # For multi-dimensional data (multiple time series)
+            # Compute the power spectrum for the first dimension to get frequency bins
+            frequencies, _ = signal.welch(lfp_data[0], 
+                                        fs=self.sampling_rate,
+                                        nperseg=nperseg)
+                                        
+            # Filter to desired frequency range
+            mask = (frequencies >= freq_range[0]) & (frequencies <= freq_range[1])
+            filtered_freqs = frequencies[mask]
+            
+            # Create an array to hold all power spectra
+            filtered_power = np.zeros((lfp_data.shape[0], mask.sum()))
+            
+            # Compute power spectrum for each time series
+            for i in range(lfp_data.shape[0]):
+                _, power = signal.welch(lfp_data[i], 
+                                      fs=self.sampling_rate,
+                                      nperseg=nperseg)
+                filtered_power[i] = power[mask]
+                
+            return filtered_freqs, filtered_power
+        else:
+            # Original code for 1D data (single time series)
+            frequencies, power_spectrum = signal.welch(lfp_data, 
+                                                     fs=self.sampling_rate,
+                                                     nperseg=nperseg)
+            
+            # Filter to desired frequency range
+            mask = (frequencies >= freq_range[0]) & (frequencies <= freq_range[1])
+            return frequencies[mask], power_spectrum[mask]
 
     def compute_spike_triggered_lfp(self, spikes: List[float], 
                                   lfp: np.ndarray,
