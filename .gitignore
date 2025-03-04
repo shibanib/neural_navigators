@@ -45,3 +45,5 @@ data/*.npz
 .Trashes
 ehthumbs.db
 Thumbs.db 
+
+/data

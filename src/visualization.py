@@ -9,7 +9,7 @@ from matplotlib.gridspec import GridSpec
 class NeuralViz:
     """Class for creating standardized visualizations of neural data."""
     
-    def __init__(self, style='seaborn'):
+    def __init__(self, style='seaborn-v0_8-whitegrid'):
         """Initialize with a specific style."""
         plt.style.use(style)
         sns.set_context("talk")
