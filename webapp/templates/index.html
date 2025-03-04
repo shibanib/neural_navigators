@@ -1,0 +1,739 @@
+{% extends "base.html" %}
+
+{% block title %}Steinmetz Analysis Dashboard{% endblock %}
+
+{% block additional_head %}
+<style>
+    .analysis-card {
+        transition: all 0.3s;
+    }
+    .analysis-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .analysis-card.selected {
+        border: 2px solid #007bff;
+        background-color: rgba(0, 123, 255, 0.1);
+    }
+    #results-container {
+        min-height: 400px;
+    }
+    .loading-spinner {
+        display: none;
+        text-align: center;
+        padding: 20px;
+    }
+    .chart-container {
+        margin-bottom: 2rem;
+    }
+    .session-badge {
+        margin-right: 5px;
+        margin-bottom: 5px;
+        cursor: pointer;
+    }
+    .session-badge.selected {
+        background-color: #28a745;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12 mb-4">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0"><i class="fas fa-cogs"></i> Analysis Configuration</h4>
+            </div>
+            <div class="card-body">
+                <form id="analysis-form">
+                    <div class="row">
+                        <!-- Sessions Selection -->
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label"><i class="fas fa-database"></i> Select Sessions</label>
+                            <div class="d-flex flex-wrap" id="session-selector">
+                                {% for session in sessions %}
+                                <span class="badge bg-secondary session-badge" data-session="{{ session }}">
+                                    Session {{ session }}
+                                </span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <!-- Quick Session Selectors -->
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Quick Selection</label>
+                            <div class="btn-group w-100" role="group">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="select-all-sessions">Select All</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="select-none-sessions">Clear</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="select-range-sessions">Select Range</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <!-- Analysis Types -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <label class="form-label"><i class="fas fa-chart-line"></i> Analysis Types</label>
+                            <div class="row" id="analysis-cards">
+                                {% for analysis in analyses %}
+                                <div class="col-md-4 mb-3">
+                                    <div class="card analysis-card h-100" data-analysis="{{ analysis }}">
+                                        <div class="card-body">
+                                            <h5 class="card-title text-capitalize">{{ analysis }}</h5>
+                                            <p class="card-text">
+                                                {% if analysis == 'basic' %}
+                                                Spike train analysis, PSTH, firing rates
+                                                {% elif analysis == 'lfp' %}
+                                                LFP power spectrum and band analysis
+                                                {% elif analysis == 'population' %}
+                                                Population dynamics and dimensionality reduction
+                                                {% elif analysis == 'behavior' %}
+                                                Behavioral analysis and correlations
+                                                {% elif analysis == 'cross_regional' %}
+                                                Cross-regional coherence and connectivity
+                                                {% else %}
+                                                Analysis of {{ analysis }} features
+                                                {% endif %}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <!-- Advanced Configuration -->
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <div class="accordion" id="advancedConfigAccordion">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header" id="headingAdvanced">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAdvanced" aria-expanded="false" aria-controls="collapseAdvanced">
+                                            <i class="fas fa-sliders-h"></i> Advanced Configuration
+                                        </button>
+                                    </h2>
+                                    <div id="collapseAdvanced" class="accordion-collapse collapse" aria-labelledby="headingAdvanced" data-bs-parent="#advancedConfigAccordion">
+                                        <div class="accordion-body">
+                                            <div class="row">
+                                                <!-- Basic Analysis Config -->
+                                                <div class="col-md-4 mb-3">
+                                                    <div class="card">
+                                                        <div class="card-header">Basic Analysis</div>
+                                                        <div class="card-body">
+                                                            <div class="mb-2">
+                                                                <label class="form-label">Time Window</label>
+                                                                <div class="input-group">
+                                                                    <input type="number" class="form-control" id="basic-time-start" value="-0.5" step="0.1">
+                                                                    <span class="input-group-text">to</span>
+                                                                    <input type="number" class="form-control" id="basic-time-end" value="0.5" step="0.1">
+                                                                </div>
+                                                            </div>
+                                                            <div class="mb-2">
+                                                                <label class="form-label">Bin Size (s)</label>
+                                                                <input type="number" class="form-control" id="basic-bin-size" value="0.01" step="0.001">
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- LFP Analysis Config -->
+                                                <div class="col-md-4 mb-3">
+                                                    <div class="card">
+                                                        <div class="card-header">LFP Analysis</div>
+                                                        <div class="card-body">
+                                                            <div class="mb-2">
+                                                                <label class="form-label">Frequency Range (Hz)</label>
+                                                                <div class="input-group">
+                                                                    <input type="number" class="form-control" id="lfp-freq-min" value="1" min="0">
+                                                                    <span class="input-group-text">to</span>
+                                                                    <input type="number" class="form-control" id="lfp-freq-max" value="100" min="1">
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Population Analysis Config -->
+                                                <div class="col-md-4 mb-3">
+                                                    <div class="card">
+                                                        <div class="card-header">Population Analysis</div>
+                                                        <div class="card-body">
+                                                            <div class="mb-2">
+                                                                <label class="form-label">PCA Components</label>
+                                                                <input type="number" class="form-control" id="pop-components" value="10" min="1">
+                                                            </div>
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox" id="pop-scale-data" checked>
+                                                                <label class="form-check-label" for="pop-scale-data">
+                                                                    Scale Data
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Run Analysis Button -->
+                    <div class="row">
+                        <div class="col-12 text-center">
+                            <button type="submit" class="btn btn-primary btn-lg" id="run-analysis-btn">
+                                <i class="fas fa-play"></i> Run Analysis
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Results Section -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h4 class="mb-0"><i class="fas fa-chart-bar"></i> Analysis Results</h4>
+            </div>
+            <div class="card-body">
+                <!-- Loading Spinner -->
+                <div class="loading-spinner" id="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Running analysis, please wait...</p>
+                </div>
+                
+                <!-- Results Container -->
+                <div id="results-container" class="mt-3">
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-chart-line fa-4x mb-3"></i>
+                        <h4>No Analysis Results Yet</h4>
+                        <p>Select sessions and analyses to run, then click the "Run Analysis" button.</p>
+                    </div>
+                </div>
+                
+                <!-- Visualization Options -->
+                <div id="viz-options" class="mt-4" style="display: none;">
+                    <hr>
+                    <h5><i class="fas fa-eye"></i> Visualization Options</h5>
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6 class="card-title">View Mode</h6>
+                                    <div class="btn-group w-100" role="group" id="view-mode-group">
+                                        <input type="radio" class="btn-check" name="view-mode" id="view-individual" autocomplete="off" checked>
+                                        <label class="btn btn-outline-primary" for="view-individual">Individual</label>
+                                        
+                                        <input type="radio" class="btn-check" name="view-mode" id="view-summary" autocomplete="off">
+                                        <label class="btn btn-outline-primary" for="view-summary">Summary</label>
+                                        
+                                        <input type="radio" class="btn-check" name="view-mode" id="view-comparison" autocomplete="off">
+                                        <label class="btn btn-outline-primary" for="view-comparison">Comparison</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6 class="card-title">Export Options</h6>
+                                    <div class="btn-group w-100" role="group">
+                                        <button class="btn btn-outline-secondary" id="export-results-btn">
+                                            <i class="fas fa-file-download"></i> Export Results
+                                        </button>
+                                        <button class="btn btn-outline-secondary" id="export-report-btn">
+                                            <i class="fas fa-file-alt"></i> Generate Report
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block additional_scripts %}
+<script>
+    $(document).ready(function() {
+        // Session selection
+        $('.session-badge').on('click', function() {
+            $(this).toggleClass('selected');
+            $(this).toggleClass('bg-secondary bg-success');
+        });
+        
+        // Analysis card selection
+        $('.analysis-card').on('click', function() {
+            $(this).toggleClass('selected');
+        });
+        
+        // Quick session selectors
+        $('#select-all-sessions').on('click', function() {
+            $('.session-badge').addClass('selected').removeClass('bg-secondary').addClass('bg-success');
+        });
+        
+        $('#select-none-sessions').on('click', function() {
+            $('.session-badge').removeClass('selected').addClass('bg-secondary').removeClass('bg-success');
+        });
+        
+        $('#select-range-sessions').on('click', function() {
+            const min = prompt('Enter minimum session number:');
+            const max = prompt('Enter maximum session number:');
+            if (min && max) {
+                $('.session-badge').each(function() {
+                    const sessionNum = parseInt($(this).data('session'));
+                    if (sessionNum >= parseInt(min) && sessionNum <= parseInt(max)) {
+                        $(this).addClass('selected').removeClass('bg-secondary').addClass('bg-success');
+                    } else {
+                        $(this).removeClass('selected').addClass('bg-secondary').removeClass('bg-success');
+                    }
+                });
+            }
+        });
+        
+        // Run analysis form submission
+        $('#analysis-form').on('submit', function(e) {
+            e.preventDefault();
+            
+            // Get selected sessions
+            const selectedSessions = [];
+            $('.session-badge.selected').each(function() {
+                selectedSessions.push(parseInt($(this).data('session')));
+            });
+            
+            // Get selected analyses
+            const selectedAnalyses = [];
+            $('.analysis-card.selected').each(function() {
+                selectedAnalyses.push($(this).data('analysis'));
+            });
+            
+            // Validate selection
+            if (selectedSessions.length === 0) {
+                alert('Please select at least one session.');
+                return;
+            }
+            
+            if (selectedAnalyses.length === 0) {
+                alert('Please select at least one analysis type.');
+                return;
+            }
+            
+            // Build configuration
+            const config = {
+                basic: {
+                    time_window: [
+                        parseFloat($('#basic-time-start').val()),
+                        parseFloat($('#basic-time-end').val())
+                    ],
+                    bin_size: parseFloat($('#basic-bin-size').val())
+                },
+                lfp: {
+                    freq_range: [
+                        parseFloat($('#lfp-freq-min').val()),
+                        parseFloat($('#lfp-freq-max').val())
+                    ]
+                },
+                population: {
+                    n_components: parseInt($('#pop-components').val()),
+                    scale_data: $('#pop-scale-data').is(':checked')
+                }
+            };
+            
+            // Show loading spinner
+            $('#loading-spinner').show();
+            $('#results-container').html('');
+            
+            // Execute AJAX request to run analysis
+            $.ajax({
+                url: '/run_analysis',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    sessions: selectedSessions,
+                    analyses: selectedAnalyses,
+                    config: config
+                }),
+                success: function(response) {
+                    $('#loading-spinner').hide();
+                    displayResults(response, selectedAnalyses);
+                    $('#viz-options').show();
+                },
+                error: function(err) {
+                    $('#loading-spinner').hide();
+                    $('#results-container').html(`
+                        <div class="alert alert-danger">
+                            <strong>Error:</strong> ${err.responseText || 'Failed to run analysis.'}
+                        </div>
+                    `);
+                }
+            });
+        });
+        
+        // Function to display results
+        function displayResults(results, selectedAnalyses) {
+            console.log("Display results called with:", results);
+            console.log("Selected analyses:", selectedAnalyses);
+            
+            let resultsHtml = '<div class="row">';
+            
+            // Store results in global variable for later use
+            window.analysisResults = results;
+            
+            // Get first session as example
+            const firstSessionKey = Object.keys(results)[0];
+            console.log("First session key:", firstSessionKey);
+            
+            const firstSessionData = results[firstSessionKey];
+            console.log("First session data:", firstSessionData);
+            
+            // Display initial individual view
+            for (const analysis of selectedAnalyses) {
+                console.log(`Checking for ${analysis} in session data:`, !!firstSessionData[analysis]);
+                if (firstSessionData[analysis]) {
+                    console.log(`Analysis ${analysis} data:`, firstSessionData[analysis]);
+                    resultsHtml += `
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header text-capitalize">
+                                    ${analysis} Analysis - Session ${firstSessionKey}
+                                </div>
+                                <div class="card-body text-center">
+                                    <div class="viz-placeholder" id="${analysis}-viz">
+                                        <p>Loading visualization...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            resultsHtml += '</div>';
+            console.log("Setting results HTML:", resultsHtml);
+            $('#results-container').html(resultsHtml);
+            
+            // Create visualizations for each analysis
+            generateVisualizations(firstSessionKey, selectedAnalyses);
+            
+            // Set up view mode switching
+            setupViewModes(results, selectedAnalyses);
+        }
+        
+        // Function to generate visualizations
+        function generateVisualizations(sessionKey, analyses) {
+            console.log(`Generating visualizations for session ${sessionKey} with analyses:`, analyses);
+            const sessionData = window.analysisResults[sessionKey];
+            console.log(`Session data:`, sessionData);
+            
+            for (const analysis of analyses) {
+                if (sessionData[analysis]) {
+                    console.log(`Requesting visualization for ${analysis}`);
+                    const vizType = getVisualizationType(analysis);
+                    console.log(`Visualization type for ${analysis} is ${vizType}`);
+                    
+                    // AJAX request to get visualization
+                    $.ajax({
+                        url: '/visualize',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({
+                            type: vizType,
+                            results: { [analysis]: sessionData[analysis] }
+                        }),
+                        success: function(response) {
+                            console.log(`Visualization response for ${analysis}:`, response);
+                            if (response.plot) {
+                                console.log(`Plot received for ${analysis}, length: ${response.plot.length}`);
+                                $(`#${analysis}-viz`).html(`
+                                    <img src="data:image/png;base64,${response.plot}" class="img-fluid" alt="${analysis} visualization">
+                                `);
+                                console.log(`Image element created for ${analysis}`);
+                            } else if (response.error) {
+                                console.error(`Error for ${analysis}:`, response.error);
+                                $(`#${analysis}-viz`).html(`
+                                    <div class="alert alert-warning">
+                                        ${response.error}
+                                    </div>
+                                `);
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            console.error(`AJAX error for ${analysis}:`, status, error);
+                            console.log('Response:', xhr.responseText);
+                            $(`#${analysis}-viz`).html(`
+                                <div class="alert alert-danger">
+                                    Failed to generate visualization: ${error}
+                                </div>
+                            `);
+                        }
+                    });
+                }
+            }
+        }
+        
+        // Map analysis type to visualization type
+        function getVisualizationType(analysis) {
+            const vizMap = {
+                'basic': 'psth',
+                'lfp': 'lfp_power',
+                'population': 'pca_variance',
+                'cross_regional': 'coherence'
+            };
+            
+            return vizMap[analysis] || analysis;
+        }
+        
+        // Setup view mode switching
+        function setupViewModes(results, selectedAnalyses) {
+            // Individual view (default)
+            $('#view-individual').on('change', function() {
+                if ($(this).is(':checked')) {
+                    // Show dropdown for session selection
+                    const sessions = Object.keys(results);
+                    let sessionSelector = `
+                        <div class="row mb-4">
+                            <div class="col-md-6 mx-auto">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <label for="session-select" class="form-label">Select Session:</label>
+                                        <select class="form-select" id="session-select">
+                    `;
+                    
+                    for (const session of sessions) {
+                        sessionSelector += `<option value="${session}">Session ${session}</option>`;
+                    }
+                    
+                    sessionSelector += `
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    $('#results-container').html(sessionSelector);
+                    
+                    // Initial display of first session
+                    const firstSession = sessions[0];
+                    displaySessionResults(firstSession, selectedAnalyses);
+                    
+                    // Handle session change
+                    $('#session-select').on('change', function() {
+                        const selectedSession = $(this).val();
+                        displaySessionResults(selectedSession, selectedAnalyses);
+                    });
+                }
+            });
+            
+            // Summary view
+            $('#view-summary').on('change', function() {
+                if ($(this).is(':checked')) {
+                    $('#results-container').html('<div class="text-center"><p>Generating summary...</p></div>');
+                    
+                    // Get first session key
+                    const firstSessionKey = Object.keys(results)[0];
+                    
+                    // Request summary visualization
+                    $.ajax({
+                        url: '/visualize',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({
+                            type: 'summary',
+                            results: results[firstSessionKey]
+                        }),
+                        success: function(response) {
+                            if (response.plot) {
+                                $('#results-container').html(`
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h5>Summary Dashboard - Session ${firstSessionKey}</h5>
+                                        </div>
+                                        <div class="card-body text-center">
+                                            <img src="data:image/png;base64,${response.plot}" class="img-fluid" alt="Summary dashboard">
+                                        </div>
+                                    </div>
+                                `);
+                            } else if (response.error) {
+                                $('#results-container').html(`
+                                    <div class="alert alert-warning">
+                                        ${response.error}
+                                    </div>
+                                `);
+                            }
+                        },
+                        error: function() {
+                            $('#results-container').html(`
+                                <div class="alert alert-danger">
+                                    Failed to generate summary dashboard.
+                                </div>
+                            `);
+                        }
+                    });
+                }
+            });
+            
+            // Comparison view
+            $('#view-comparison').on('change', function() {
+                if ($(this).is(':checked')) {
+                    $('#results-container').html('<div class="text-center"><p>Generating comparison...</p></div>');
+                    
+                    // Request comparison visualization
+                    $.ajax({
+                        url: '/visualize',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({
+                            type: 'comparison',
+                            results: results
+                        }),
+                        success: function(response) {
+                            if (response.plots) {
+                                let comparisonHtml = '<div class="row">';
+                                
+                                for (const [plotType, plotData] of Object.entries(response.plots)) {
+                                    comparisonHtml += `
+                                        <div class="col-md-6 mb-4">
+                                            <div class="card">
+                                                <div class="card-header text-capitalize">
+                                                    ${plotType.replace('_', ' ')}
+                                                </div>
+                                                <div class="card-body text-center">
+                                                    <img src="data:image/png;base64,${plotData}" class="img-fluid" alt="${plotType}">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }
+                                
+                                comparisonHtml += '</div>';
+                                $('#results-container').html(comparisonHtml);
+                            } else if (response.error) {
+                                $('#results-container').html(`
+                                    <div class="alert alert-warning">
+                                        ${response.error}
+                                    </div>
+                                `);
+                            }
+                        },
+                        error: function() {
+                            $('#results-container').html(`
+                                <div class="alert alert-danger">
+                                    Failed to generate comparison visualizations.
+                                </div>
+                            `);
+                        }
+                    });
+                }
+            });
+            
+            // Export results button
+            $('#export-results-btn').on('click', function() {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(results, null, 2));
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                downloadAnchorNode.setAttribute("download", "analysis_results.json");
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+            });
+            
+            // Generate report button
+            $('#export-report-btn').on('click', function() {
+                $.ajax({
+                    url: '/summary_report',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        results: results
+                    }),
+                    success: function(report) {
+                        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(report, null, 2));
+                        const downloadAnchorNode = document.createElement('a');
+                        downloadAnchorNode.setAttribute("href", dataStr);
+                        downloadAnchorNode.setAttribute("download", "analysis_report.json");
+                        document.body.appendChild(downloadAnchorNode);
+                        downloadAnchorNode.click();
+                        downloadAnchorNode.remove();
+                    },
+                    error: function() {
+                        alert('Failed to generate report.');
+                    }
+                });
+            });
+        }
+        
+        // Function to display session-specific results
+        function displaySessionResults(sessionKey, analyses) {
+            let resultsHtml = '<div class="row">';
+            const sessionData = window.analysisResults[sessionKey];
+            
+            for (const analysis of analyses) {
+                if (sessionData[analysis]) {
+                    resultsHtml += `
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header text-capitalize">
+                                    ${analysis} Analysis - Session ${sessionKey}
+                                </div>
+                                <div class="card-body text-center">
+                                    <div class="viz-placeholder" id="${analysis}-viz-${sessionKey}">
+                                        <p>Loading visualization...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            resultsHtml += '</div>';
+            $('#results-container').append(resultsHtml);
+            
+            // Generate visualizations for the session
+            for (const analysis of analyses) {
+                if (sessionData[analysis]) {
+                    $.ajax({
+                        url: '/visualize',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({
+                            type: getVisualizationType(analysis),
+                            results: { [analysis]: sessionData[analysis] }
+                        }),
+                        success: function(response) {
+                            if (response.plot) {
+                                $(`#${analysis}-viz-${sessionKey}`).html(`
+                                    <img src="data:image/png;base64,${response.plot}" class="img-fluid" alt="${analysis} visualization">
+                                `);
+                            }
+                        },
+                        error: function() {
+                            $(`#${analysis}-viz-${sessionKey}`).html(`
+                                <div class="alert alert-danger">
+                                    Failed to generate visualization.
+                                </div>
+                            `);
+                        }
+                    });
+                }
+            }
+        }
+    });
+</script>
+{% endblock %} 
