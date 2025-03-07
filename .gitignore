@@ -50,3 +50,6 @@ Thumbs.db
 notebooks/steinmetz_lfp.npz
 notebooks/steinmetz_wav.npz
 notebooks/steinmetz_st.npz
+notebooks/steinmetz_part0.npz
+notebooks/steinmetz_part1.npz
+notebooks/steinmetz_part2.npz
