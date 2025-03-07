@@ -47,3 +47,6 @@ ehthumbs.db
 Thumbs.db 
 
 /data
+notebooks/steinmetz_lfp.npz
+notebooks/steinmetz_wav.npz
+notebooks/steinmetz_st.npz

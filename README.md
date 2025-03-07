@@ -2,6 +2,10 @@
 
 This repository contains a comprehensive analysis pipeline for the Steinmetz et al. (2019) dataset, which includes neural recordings from multiple brain regions during a visual decision-making task.
 
+## Important Note
+
+**Final_code.ipynb** (located in the notebooks directory) is the primary notebook used for the micropublication. This notebook contains the finalized analysis and results that were included in the publication.
+
 ## Project Structure
 ```
 .
@@ -44,6 +48,11 @@ This repository contains a comprehensive analysis pipeline for the Steinmetz et 
    ```
 
 ## Analysis Notebooks
+
+### Final Code for Micropublication (`Final_code.ipynb`)
+- Contains the finalized analysis and results used in the micropublication
+- Comprehensive implementation of the methods described in the publication
+- Reproduces all figures and tables presented in the micropublication
 
 ### 1. Basic Neural Analysis (`1_basic_neural_analysis.ipynb`)
 - PSTH analysis aligned to stimulus and choice
