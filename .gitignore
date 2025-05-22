@@ -53,3 +53,8 @@ notebooks/steinmetz_st.npz
 notebooks/steinmetz_part0.npz
 notebooks/steinmetz_part1.npz
 notebooks/steinmetz_part2.npz
+notebooks/steinmetz_data
+notebooks/steinmetz_data_downloads
+notebooks/steinmetz_temp_download
+notebooks/data
+notebooks/backup_data
