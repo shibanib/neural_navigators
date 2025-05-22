@@ -1,7 +1,12 @@
 import sys
-sys.path.append('../../src')
-
 import os
+
+# Robustly add src directory to sys.path
+_CONTROLLER_DIR = os.path.dirname(os.path.abspath(__file__))
+_SRC_DIR = os.path.abspath(os.path.join(_CONTROLLER_DIR, '..', '..', 'src'))
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
+
 import json
 import numpy as np
 from datetime import datetime
@@ -30,7 +35,8 @@ class AnalysisController:
             'lfp': self._run_lfp_analysis,
             'population': self._run_population_analysis,
             'behavior': self._run_behavior_analysis,
-            'cross_regional': self._run_cross_regional_analysis
+            'cross_regional': self._run_cross_regional_analysis,
+            'choice_aligned': self._run_choice_aligned_analysis
         }
         logger.info(f"Available analyses: {list(self.available_analyses.keys())}")
         
@@ -57,6 +63,9 @@ class AnalysisController:
             },
             'cross_regional': {
                 'method': 'coherence'
+            },
+            'choice_aligned': {
+                'example_param': 'default_value'
             }
         }
     
@@ -329,4 +338,92 @@ class AnalysisController:
             'coherence': [],
             'method': method,
             'error': 'Insufficient data for cross-regional analysis'
+        }
+
+    def _run_choice_aligned_analysis(self, session_data, config):
+        """Run choice-aligned activity analysis.
+        Roadmap 3.3:
+        - Data: dat['spks'], dat['response']
+        - Method: Separate trials by choice, calc avg activity, stat tests, FDR.
+        - Visualization: Activity diff, heatmap of selectivity.
+        - Metrics: Selectivity index, latency, duration.
+        """
+        logger.info(f"Running choice-aligned analysis with config: {config}")
+
+        spikes = session_data.get('spikes') # Expected shape: (n_neurons, n_trials, n_timebins)
+        response = session_data.get('response') # Expected shape: (n_trials,)
+        
+        if spikes is None or response is None:
+            logger.error("Choice-aligned: Missing spikes or response data.")
+            return {'error': 'Missing spikes or response data for choice-aligned analysis.'}
+
+        if not isinstance(spikes, np.ndarray) or spikes.ndim != 3:
+            logger.error(f"Choice-aligned: Spikes data has incorrect shape or type: {type(spikes)}, ndim: {getattr(spikes, 'ndim', 'N/A')}")
+            return {'error': 'Spikes data has incorrect shape or type.'}
+            
+        if not isinstance(response, np.ndarray) or response.ndim != 1:
+            logger.error(f"Choice-aligned: Response data has incorrect shape or type: {type(response)}, ndim: {getattr(response, 'ndim', 'N/A')}")
+            return {'error': 'Response data has incorrect shape or type.'}
+
+        n_neurons, n_trials, n_timebins = spikes.shape
+
+        if n_trials != len(response):
+            logger.error(f"Choice-aligned: Mismatch between number of trials in spikes ({n_trials}) and response ({len(response)}).")
+            return {'error': 'Mismatch in trial numbers between spikes and response.'}
+
+        # Roadmap: Separate trials by choice direction (left vs. right)
+        # Response values: -1 (right), 0 (no-go), 1 (left) based on NMA notebook
+        
+        # For this example, let's define left_choice_trials and right_choice_trials
+        # This might need adjustment based on actual response values.
+        # Assuming response value 1 for left, -1 for right.
+        left_choice_mask = (response == 1)
+        right_choice_mask = (response == -1)
+
+        if not np.any(left_choice_mask) or not np.any(right_choice_mask):
+            logger.warning("Choice-aligned: Not enough trials for both left and right choices.")
+            return {'error': 'Insufficient trials for at least one choice direction.'}
+
+        spikes_left_choice = spikes[:, left_choice_mask, :]    # (n_neurons, n_left_trials, n_timebins)
+        spikes_right_choice = spikes[:, right_choice_mask, :] # (n_neurons, n_right_trials, n_timebins)
+
+        # Calculate average activity profiles for each choice
+        avg_activity_left = np.mean(spikes_left_choice, axis=1)   # (n_neurons, n_timebins)
+        avg_activity_right = np.mean(spikes_right_choice, axis=1) # (n_neurons, n_timebins)
+        
+        # Activity difference
+        activity_diff = avg_activity_left - avg_activity_right # (n_neurons, n_timebins)
+
+        # Placeholder for statistical tests, FDR, selectivity index, latency, duration
+        # These would involve more complex calculations, potentially using self.neural_analyzer
+
+        # For now, return the processed data that can be visualized
+        # Time bins information is also needed for plotting
+        # Assuming bin_size and stim_onset are available as in basic analysis, or fixed
+        # From NMA notebook: dt = dat['bin_size'] (0.01s), stim_onset = T0 (0.5s)
+        # Number of timebins is spikes.shape[2]. Total duration = n_timebins * dt
+        # Time relative to stimulus onset: np.arange(n_timebins) * dt - stim_onset
+        
+        bin_size = session_data.get('bin_size', 0.01) # Default 10ms
+        stim_onset_time = session_data.get('stim_onset', 0.5) # Default 500ms
+        
+        # Create a time axis: from -stim_onset_time to (n_timebins*bin_size - stim_onset_time)
+        # Example: if n_timebins = 250, bin_size = 0.01, stim_onset_time = 0.5
+        # Bins are 0 to 249. Times: 0*0.01-0.5 = -0.5;  249*0.01-0.5 = 2.49-0.5 = 1.99
+        time_axis = (np.arange(n_timebins) * bin_size) - stim_onset_time
+
+
+        logger.info(f"Choice-aligned analysis completed for {n_neurons} neurons.")
+        
+        return {
+            'avg_activity_left': avg_activity_left.tolist(),
+            'avg_activity_right': avg_activity_right.tolist(),
+            'activity_difference': activity_diff.tolist(),
+            'time_axis': time_axis.tolist(),
+            'n_left_trials': int(np.sum(left_choice_mask)),
+            'n_right_trials': int(np.sum(right_choice_mask)),
+            'n_neurons': n_neurons,
+            # 'choice_selectivity_index': [], # Placeholder
+            # 'latency_to_encoding': [], # Placeholder
+            # 'duration_of_encoding': [] # Placeholder
         } 

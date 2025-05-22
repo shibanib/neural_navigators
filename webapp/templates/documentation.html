@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}Application Documentation{% endblock %}
+
+{% block additional_head %}
+<!-- We will add marked.js and a syntax highlighter like Prism.js later -->
+<style>
+    #documentation-content {
+        margin-top: 20px;
+    }
+    .code-block-container {
+        margin-top: 1em;
+        margin-bottom: 1em;
+    }
+    pre[class*=\"language-\"] {
+        padding: 1em;
+        margin: .5em 0;
+        overflow: auto;
+        border-radius: 0.3em;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-3">
+        <h4>Topics</h4>
+        <div class="list-group" id="doc-topics-nav">
+            <!-- Topics will be populated by JavaScript -->
+        </div>
+    </div>
+    <div class="col-md-9">
+        <h2 id="doc-title">Documentation</h2>
+        <div id="documentation-content">
+            <p>Loading documentation...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block additional_scripts %}
+<!-- marked.js for Markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<!-- Prism.js for syntax highlighting (core and Python language) -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+
+<script>
+    $(document).ready(function() {
+        const docsPath = '/static/docs/';
+        const topics = [
+            { file: "introduction.md", title: "Introduction" },
+            { file: "data_overview.md", title: "Data Loading & Structure" },
+            { file: "analysis_modules.md", title: "Analysis Modules" },
+            // Add more topics here as .md files are created
+        ];
+
+        const $docTopicsNav = $('#doc-topics-nav');
+        topics.forEach((topic, index) => {
+            $docTopicsNav.append(
+                `<a href="#" class="list-group-item list-group-item-action ${index === 0 ? 'active' : ''}" data-doc-file="${topic.file}">${topic.title}</a>`
+            );
+        });
+
+        function loadDocumentation(docFile) {
+            const filePath = docsPath + docFile;
+            $('#documentation-content').html('<p>Loading...</p>');
+            
+            $.ajax({
+                url: filePath,
+                type: 'GET',
+                dataType: 'text',
+                success: function(markdownContent) {
+                    let docTitle = docFile.replace('.md', '').replace(/_/g, ' ');
+                    docTitle = docTitle.charAt(0).toUpperCase() + docTitle.slice(1);
+                    $('#doc-title').text(docTitle);
+
+                    // Pre-process for custom Python function tags before rendering
+                    const processedMarkdown = preprocessMarkdownForCodeSnippets(markdownContent);
+
+                    $('#documentation-content').html(marked.parse(processedMarkdown));
+                    Prism.highlightAllUnder($('#documentation-content')[0]);
+                    
+                    // After rendering, attach handlers for any code toggle buttons
+                    attachCodeToggleHandlers();
+                },
+                error: function(xhr, status, error) {
+                    $('#documentation-content').html('<div class="alert alert-danger">Failed to load documentation: ' + docFile + '</div>');
+                    console.error("Error loading doc:", status, error, xhr);
+                }
+            });
+        }
+
+        // Placeholder for pre-processing (will be used for Python code toggles)
+        function preprocessMarkdownForCodeSnippets(markdownContent) {
+            // Example: [PYTHON_FUNC:path/to/file.py:FunctionName]
+            // This will be replaced with a div and a button
+            const pythonFuncRegex = /\[PYTHON_FUNC:([^:]+):([^:]+)(?::([^\\\]]+))?\]/g;
+            return markdownContent.replace(pythonFuncRegex, (match, filePath, entityName, type) => {
+                const uniqueId = `code-${filePath.replace(/[^a-zA-Z0-9]/g, '-')}-${entityName.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                let buttonText = type === 'class' ? `Show/Hide Class: ${entityName}` : `Show/Hide Function: ${entityName}`;
+                if (type === 'method') buttonText = `Show/Hide Method: ${entityName}`;
+
+                return `
+<div class="code-block-container" id="container-${uniqueId}">
+    <button class="btn btn-sm btn-outline-secondary code-toggle-btn" data-target="#${uniqueId}" data-filepath="${filePath}" data-entityname="${entityName}" data-entitytype="${type || 'function'}">
+        <i class="fas fa-code"></i> ${buttonText}
+    </button>
+    <div id="${uniqueId}" class="collapse mt-2">
+        <pre><code class="language-python">Loading code...</code></pre>
+    </div>
+</div>`;
+            });
+        }
+        
+        // Placeholder for attaching handlers (will be used for Python code toggles)
+        function attachCodeToggleHandlers() {
+            $('.code-toggle-btn').off('click').on('click', function() {
+                const targetDivId = $(this).data('target');
+                const $targetDiv = $(targetDivId);
+                const filePath = $(this).data('filepath');
+                const entityName = $(this).data('entityname');
+                const entityType = $(this).data('entitytype');
+
+                if ($targetDiv.hasClass('show')) {
+                    $targetDiv.collapse('hide');
+                } else {
+                    // Only load if not already loaded, or reload if needed
+                    const $codeElement = $targetDiv.find('code');
+                    if ($codeElement.text() === 'Loading code...' || $codeElement.data('loaded') !== 'true') {
+                        $.ajax({
+                            url: '/get_code_snippet',
+                            type: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({ file_path: filePath, entity_name: entityName, entity_type: entityType }),
+                            success: function(response) {
+                                if (response.error) {
+                                    $codeElement.text(response.error);
+                                } else {
+                                    $codeElement.text(response.code_snippet); // Ensure this is plain text
+                                    Prism.highlightElement($codeElement[0]);
+                                    $codeElement.data('loaded', 'true');
+                                }
+                                $targetDiv.collapse('show');
+                            },
+                            error: function() {
+                                $codeElement.text('Failed to load code snippet.');
+                                $targetDiv.collapse('show');
+                            }
+                        });
+                    } else {
+                         $targetDiv.collapse('show');
+                    }
+                }
+            });
+        }
+
+        // Handle topic selection from navigation
+        $docTopicsNav.on('click', 'a', function(e) {
+            e.preventDefault();
+            $docTopicsNav.find('a').removeClass('active');
+            $(this).addClass('active');
+            const docFile = $(this).data('doc-file');
+            loadDocumentation(docFile);
+        });
+
+        // Load the default/first documentation file
+        const defaultDocFile = $docTopicsNav.find('a.active').data('doc-file');
+        if (defaultDocFile) {
+            loadDocumentation(defaultDocFile);
+        } else if (topics.length > 0) {
+            loadDocumentation(topics[0].file); // Fallback if no active class set
+        }
+    });
+</script>
+{% endblock %} 

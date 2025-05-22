@@ -1,5 +1,11 @@
 import sys
-sys.path.append('../../src')
+import os
+
+# Robustly add src directory to sys.path
+_CONTROLLER_DIR = os.path.dirname(os.path.abspath(__file__))
+_SRC_DIR = os.path.abspath(os.path.join(_CONTROLLER_DIR, '..', '..', 'src'))
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
 
 import io
 import base64
@@ -30,7 +36,8 @@ class VisualizationController:
             'pca_variance': self._generate_pca_variance_plot,
             'coherence': self._generate_coherence_plot,
             'summary': self._generate_summary_dashboard,
-            'comparison': self._generate_comparison_plot
+            'comparison': self._generate_comparison_plot,
+            'choice_activity': self._generate_choice_activity_plot
         }
         logger.info(f"Registered visualization types: {list(self.visualization_types.keys())}")
     
@@ -349,4 +356,73 @@ class VisualizationController:
             'plots': comparison_plots,
             'plot_type': 'comparison',
             'available_analyses': list(available_analyses)
+        }
+
+    def _generate_choice_activity_plot(self, results):
+        """Generate plot for choice-aligned activity analysis results."""
+        logger.info("Generating choice activity plot")
+        # The 'results' here is expected to be the direct output of 
+        # AnalysisController._run_choice_aligned_analysis for a single session.
+        
+        if 'choice_aligned' not in results:
+            logger.warning("No choice_aligned analysis results found in the input for visualization.")
+            # This check might be tricky if results is directly the output of choice_aligned analysis
+            # Let's assume `results` *is* the choice_aligned_results dictionary itself.
+            # So, we check for its specific keys directly.
+            pass # Re-evaluating structure below
+
+        choice_results = results.get('choice_aligned')
+        if not choice_results: # If called with results={session_id: {analysis_name: data}}
+             # Or if called with results={analysis_name: data} and analysis_name is not 'choice_aligned'
+            if isinstance(results, dict) and 'avg_activity_left' in results: # results is already choice_results
+                choice_results = results
+            else:
+                logger.warning("No choice_aligned analysis results found under 'choice_aligned' key or direct result.")
+                return {'error': 'No choice_aligned analysis results found for visualization.'}
+
+        logger.info(f"Choice-aligned results keys for viz: {list(choice_results.keys())}")
+
+        # Extract data
+        try:
+            avg_activity_left_all_neurons = np.array(choice_results['avg_activity_left']) # (n_neurons, n_timebins)
+            avg_activity_right_all_neurons = np.array(choice_results['avg_activity_right'])
+            activity_diff_all_neurons = np.array(choice_results['activity_difference'])
+            time_axis = np.array(choice_results['time_axis'])
+            n_left_trials = choice_results.get('n_left_trials', 'N/A')
+            n_right_trials = choice_results.get('n_right_trials', 'N/A')
+        except KeyError as e:
+            logger.error(f"Missing key in choice_aligned results: {e}")
+            return {'error': f'Missing key {e} in choice_aligned results for visualization.'}
+
+        if not avg_activity_left_all_neurons.size or not time_axis.size:
+            logger.warning("Choice activity plot: No data to plot (empty arrays).")
+            return {'error': 'No data available to plot for choice activity.'}
+
+        # For a summary plot, average across neurons
+        avg_left_across_neurons = np.mean(avg_activity_left_all_neurons, axis=0)
+        avg_right_across_neurons = np.mean(avg_activity_right_all_neurons, axis=0)
+        avg_diff_across_neurons = np.mean(activity_diff_all_neurons, axis=0)
+
+        # Create plot
+        fig, ax = plt.subplots(figsize=(12, 7))
+        ax.plot(time_axis, avg_left_across_neurons, label=f'Avg Left Choice (N={n_left_trials} trials)', color='blue')
+        ax.plot(time_axis, avg_right_across_neurons, label=f'Avg Right Choice (N={n_right_trials} trials)', color='red')
+        ax.plot(time_axis, avg_diff_across_neurons, label='Difference (Left - Right)', color='green', linestyle='--')
+        
+        ax.axvline(x=0, color='k', linestyle=':', alpha=0.7, label='Stimulus Onset')
+        ax.set_xlabel('Time from stimulus onset (s)')
+        ax.set_ylabel('Average Firing Rate (population mean, Hz or counts/bin)') # Label needs to be accurate based on input
+        ax.set_title('Population Average Activity Aligned to Choice')
+        ax.legend()
+        ax.grid(True)
+        
+        plt.tight_layout()
+        
+        # Convert to base64
+        img_data = self._figure_to_base64(fig)
+        
+        return {
+            'plot': img_data,
+            'plot_type': 'choice_activity',
+            'description': 'Average neural activity for left and right choices, and their difference, across all neurons.'
         } 

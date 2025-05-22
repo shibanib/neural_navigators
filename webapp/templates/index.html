@@ -49,11 +49,11 @@
                     <div class="row">
                         <!-- Sessions Selection -->
                         <div class="col-md-6 mb-3">
-                            <label class="form-label"><i class="fas fa-database"></i> Select Sessions</label>
+                            <label class="form-label"><i class="fas fa-database"></i> Select Sessions (0-indexed in backend)</label>
                             <div class="d-flex flex-wrap" id="session-selector">
-                                {% for session in sessions %}
-                                <span class="badge bg-secondary session-badge" data-session="{{ session }}">
-                                    Session {{ session }}
+                                {% for session_idx_0_based in sessions %}
+                                <span class="badge bg-secondary session-badge" data-session="{{ session_idx_0_based }}">
+                                    Session {{ session_idx_0_based + 1 }} {# Display 1-based #}
                                 </span>
                                 {% endfor %}
                             </div>
@@ -81,7 +81,7 @@
                                 <div class="col-md-4 mb-3">
                                     <div class="card analysis-card h-100" data-analysis="{{ analysis }}">
                                         <div class="card-body">
-                                            <h5 class="card-title text-capitalize">{{ analysis }}</h5>
+                                            <h5 class="card-title text-capitalize">{{ analysis|replace('_', ' ') }}</h5>
                                             <p class="card-text">
                                                 {% if analysis == 'basic' %}
                                                 Spike train analysis, PSTH, firing rates
@@ -93,6 +93,8 @@
                                                 Behavioral analysis and correlations
                                                 {% elif analysis == 'cross_regional' %}
                                                 Cross-regional coherence and connectivity
+                                                {% elif analysis == 'choice_aligned' %}
+                                                Choice-aligned neural activity analysis
                                                 {% else %}
                                                 Analysis of {{ analysis }} features
                                                 {% endif %}
@@ -198,6 +200,41 @@
     </div>
 </div>
 
+<!-- Data Explorer Section -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h4 class="mb-0"><i class="fas fa-search"></i> Data Explorer</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label for="explorer-session-select" class="form-label">Select Session to Explore:</label>
+                        <select class="form-select" id="explorer-session-select">
+                            {% for session_idx_0_based in sessions %}
+                            <option value="{{ session_idx_0_based }}">Session {{ session_idx_0_based + 1 }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-3 align-self-end">
+                        <button class="btn btn-info" id="explore-data-btn"><i class="fas fa-play-circle"></i> Explore Data</button>
+                    </div>
+                </div>
+                <div id="data-explorer-results-container" class="mt-3">
+                    <!-- Summary will be displayed here -->
+                </div>
+                <div class="loading-spinner" id="explorer-loading-spinner">
+                    <div class="spinner-border text-info" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading session data summary...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Results Section -->
 <div class="row">
     <div class="col-md-12">
@@ -292,12 +329,14 @@
         });
         
         $('#select-range-sessions').on('click', function() {
-            const min = prompt('Enter minimum session number:');
-            const max = prompt('Enter maximum session number:');
-            if (min && max) {
+            const minSessionDisplay = parseInt(prompt('Enter minimum session number (e.g., 1):'));
+            const maxSessionDisplay = parseInt(prompt('Enter maximum session number (e.g., 39):'));
+            if (!isNaN(minSessionDisplay) && !isNaN(maxSessionDisplay)) {
+                const minSessionIdx = minSessionDisplay -1; // Convert to 0-based for data-session
+                const maxSessionIdx = maxSessionDisplay -1;
                 $('.session-badge').each(function() {
-                    const sessionNum = parseInt($(this).data('session'));
-                    if (sessionNum >= parseInt(min) && sessionNum <= parseInt(max)) {
+                    const sessionNum = parseInt($(this).data('session')); // This is 0-based
+                    if (sessionNum >= minSessionIdx && sessionNum <= maxSessionIdx) {
                         $(this).addClass('selected').removeClass('bg-secondary').addClass('bg-success');
                     } else {
                         $(this).removeClass('selected').addClass('bg-secondary').removeClass('bg-success');
@@ -492,7 +531,8 @@
                 'basic': 'psth',
                 'lfp': 'lfp_power',
                 'population': 'pca_variance',
-                'cross_regional': 'coherence'
+                'cross_regional': 'coherence',
+                'choice_aligned': 'choice_activity'
             };
             
             return vizMap[analysis] || analysis;
@@ -733,6 +773,100 @@
                     });
                 }
             }
+        }
+
+        // Data Explorer Button Click
+        $('#explore-data-btn').on('click', function() {
+            const selectedSessionIdx = $('#explorer-session-select').val();
+            console.log(`DataExplorer: Requesting summary for session_idx: ${selectedSessionIdx}`); // JS Log
+            $('#explorer-loading-spinner').show();
+            $('#data-explorer-results-container').html('');
+
+            $.ajax({
+                url: '/session_summary',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ session_idx: parseInt(selectedSessionIdx) }),
+                success: function(summaryResponse, textStatus, jqXHR) { // Added more params
+                    console.log('DataExplorer: AJAX success. Status:', textStatus, 'Response:', summaryResponse); // JS Log
+                    $('#explorer-loading-spinner').hide();
+                    if (summaryResponse && summaryResponse.error) { 
+                        console.error('DataExplorer: Server returned an error in summaryResponse:', summaryResponse.error); // JS Log
+                        $('#data-explorer-results-container').html(`<div class="alert alert-danger">Error: ${escapeHtml(summaryResponse.error)}</div>`);
+                    } else if (summaryResponse) {
+                        displayDataExplorerResults(summaryResponse);
+                    } else {
+                        console.error('DataExplorer: AJAX success but summaryResponse is empty or undefined.'); // JS Log
+                        $('#data-explorer-results-container').html(`<div class="alert alert-warning">Received empty summary from server.</div>`);
+                    }
+                },
+                error: function(xhr, textStatus, errorThrown) { // Added more params
+                    console.error('DataExplorer: AJAX error. Status:', textStatus, 'ErrorThrown:', errorThrown, 'XHR Response:', xhr.responseText); // JS Log
+                    $('#explorer-loading-spinner').hide();
+                    let errorMsg = 'Failed to load session summary.'; 
+                    if (xhr.responseJSON && xhr.responseJSON.error) { 
+                        errorMsg = escapeHtml(xhr.responseJSON.error);
+                    } else if (xhr.responseText) {
+                        // Try to show a snippet of the response if it's not JSON
+                        errorMsg = `Server returned an unhandled error. Preview: ${escapeHtml(xhr.responseText.substring(0,100))}`;
+                    }
+                    $('#data-explorer-results-container').html(`<div class="alert alert-danger">Error: ${errorMsg}</div>`);
+                }
+            });
+        });
+
+        function displayDataExplorerResults(summary) {
+            let html = '<div class="accordion" id="dataExplorerAccordion">';
+            Object.entries(summary).forEach(([key, details], index) => {
+                const collapseId = `collapse-${key.replace(/[^a-zA-Z0-9]/g, '-')}-${index}`;
+                const headingId = `heading-${key.replace(/[^a-zA-Z0-9]/g, '-')}-${index}`;
+
+                html += `
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="${headingId}">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="false" aria-controls="${collapseId}">
+                                <strong>${key}</strong> <small class="ms-2 text-muted">(${details.type || 'N/A'})</small>
+                            </button>
+                        </h2>
+                        <div id="${collapseId}" class="accordion-collapse collapse" aria-labelledby="${headingId}" data-bs-parent="#dataExplorerAccordion">
+                            <div class="accordion-body">
+                                <ul class="list-group list-group-flush">`;
+                Object.entries(details).forEach(([detailKey, detailValue]) => {
+                    if (detailKey === 'type') return; // Already shown in header
+                    
+                    let displayValueStr;
+                    if (typeof detailValue === 'object' && detailValue !== null) {
+                        try {
+                            displayValueStr = JSON.stringify(detailValue, null, 2);
+                            html += `<li class="list-group-item"><strong>${detailKey}:</strong><pre style="white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto;">${escapeHtml(displayValueStr)}</pre></li>`;
+                        } catch (e) {
+                             html += `<li class="list-group-item"><strong>${detailKey}:</strong> Error serializing value.</li>`;
+                        }
+                    } else {
+                        displayValueStr = String(detailValue);
+                         if (displayValueStr.length > 300) displayValueStr = displayValueStr.substring(0, 300) + '...';
+                        html += `<li class="list-group-item"><strong>${detailKey}:</strong> ${escapeHtml(displayValueStr)}</li>`;
+                    }
+                });
+                html += `
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            $('#data-explorer-results-container').html(html);
+        }
+
+        function escapeHtml(unsafe) {
+            if (unsafe === null || typeof unsafe === 'undefined') return '';
+            return String(unsafe)
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
         }
     });
 </script>
